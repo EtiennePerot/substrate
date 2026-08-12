@@ -58,7 +58,7 @@ func TestKillArgs(t *testing.T) {
 		"-log-format", "json",
 		"--alsologtostderr",
 		"-root", ateompath.RunSCStateDir("test-actor-123"),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir("test-actor-123")),
+		"-shared-root", ateompath.SharedRootDir,
 		"kill",
 		"my-container",
 		"SIGTERM",
@@ -80,7 +80,7 @@ func TestWaitArgs(t *testing.T) {
 		"-log-format", "json",
 		"--alsologtostderr",
 		"-root", ateompath.RunSCStateDir("test-actor-123"),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir("test-actor-123")),
+		"-shared-root", ateompath.SharedRootDir,
 		"wait",
 		"my-container",
 	}

@@ -98,6 +98,10 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 		return fmt.Errorf("while setting cgroups path for %q: %w", containerName, err)
 	}
 
+	if err := os.MkdirAll(ateompath.SharedRootDir, 0o755); err != nil {
+		return fmt.Errorf("while creating shared root %q: %w", ateompath.SharedRootDir, err)
+	}
+
 	args := []string{
 		"-log-format", "json",
 		"--alsologtostderr",
@@ -107,7 +111,7 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 		// "-log-packets",
 		// "-strace",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 	}
 	args = append(args, nvproxyGlobalArgs()...)
 	args = append(args,
@@ -150,7 +154,7 @@ func (r *runsc) cmdStart(ctx context.Context, out io.Writer, containerName strin
 		// "-strace",
 		"-allow-connected-on-save",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 	}
 	startArgs = append(startArgs, "start", containerName)
 	cmd := exec.CommandContext(ctx, r.path, startArgs...)
@@ -182,7 +186,7 @@ func (r *runsc) cmdCheckpoint(ctx context.Context, containerName, checkpointPath
 		// "-log-packets",
 		// "-strace",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 		"checkpoint",
 		"-image-path", checkpointPath,
 		containerName, // Name of the container
@@ -211,7 +215,7 @@ func (r *runsc) cmdFsCheckpoint(ctx context.Context, containerName, checkpointPa
 		// "-log-packets",
 		// "-strace",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 		"fscheckpoint",
 		"-image-path", checkpointPath,
 	}
@@ -248,6 +252,10 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 		return fmt.Errorf("while setting cgroups path for %q: %w", containerName, err)
 	}
 
+	if err := os.MkdirAll(ateompath.SharedRootDir, 0o755); err != nil {
+		return fmt.Errorf("while creating shared root %q: %w", ateompath.SharedRootDir, err)
+	}
+
 	restoreArgs := []string{
 		"-log-format", "json",
 		"--alsologtostderr",
@@ -257,7 +265,7 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 		// "-log-packets",
 		// "-strace",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 	}
 	restoreArgs = append(restoreArgs, nvproxyGlobalArgs()...)
 	restoreArgs = append(restoreArgs,
@@ -293,7 +301,7 @@ func (r *runsc) cmdDelete(ctx context.Context, containerName string) error {
 		"--alsologtostderr",
 		// "-debug",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 		"delete",
 		"-force",
 		containerName,
@@ -319,7 +327,7 @@ func (r *runsc) cmdState(ctx context.Context, containerName string) error {
 		"-log-format", "json",
 		"--alsologtostderr",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 		"state",
 		containerName,
 	)
@@ -338,7 +346,7 @@ func (r *runsc) killArgs(containerName, signal string) []string {
 		"-log-format", "json",
 		"--alsologtostderr",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 		"kill",
 		containerName,
 		signal,
@@ -369,7 +377,7 @@ func (r *runsc) waitArgs(containerName string) []string {
 		"-log-format", "json",
 		"--alsologtostderr",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
-		"-shared-root", filepath.Dir(ateompath.RunSCStateDir(r.actorUID)),
+		"-shared-root", ateompath.SharedRootDir,
 		"wait",
 		containerName,
 	}

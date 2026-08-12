@@ -43,6 +43,12 @@ var (
 	// CredentialBrokerSocket is the node-local atelet socket used by atunnel
 	// to request credentials for the worker's current actor assignment.
 	CredentialBrokerSocket = filepath.Join(BasePath, "credential-broker.sock")
+
+	// SharedRootDir is the node-wide directory passed to runsc via
+	// --shared-root, so cross-sandbox state (e.g. the null gofer network
+	// namespace) is reused across sandboxes even though each sandbox gets its
+	// own per-actor --root.
+	SharedRootDir = filepath.Join(BasePath, "shared-root")
 )
 
 func RunSCBinaryPath(sha256 string) string {
