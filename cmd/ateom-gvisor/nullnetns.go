@@ -34,7 +34,7 @@ import (
 // namespace: from atelet's broker when available, otherwise freshly created
 // here (ateom has CAP_SYS_ADMIN) and donated to the broker for later
 // sandboxes on the node. The fd is passed to runsc create/restore as
-// --gofer-netns=/proc/self/fd/<n>, which runsc opens in-process
+// --gofer-network-namespace=/proc/self/fd/<n>, which runsc opens in-process
 // (specutils.ApplyNS), so gofers join it instead of paying netns creation
 // per sandbox boot.
 func acquireGoferNetNS() (*os.File, error) {

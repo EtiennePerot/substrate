@@ -117,7 +117,7 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 	} else {
 		goferNS = f
 		defer goferNS.Close()
-		args = append(args, "-gofer-netns", "/proc/self/fd/3")
+		args = append(args, "-gofer-network-namespace", "/proc/self/fd/3")
 	}
 	args = append(args, nvproxyGlobalArgs()...)
 	args = append(args,
@@ -275,7 +275,7 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 	} else {
 		goferNS = f
 		defer goferNS.Close()
-		restoreArgs = append(restoreArgs, "-gofer-netns", "/proc/self/fd/3")
+		restoreArgs = append(restoreArgs, "-gofer-network-namespace", "/proc/self/fd/3")
 	}
 	restoreArgs = append(restoreArgs, nvproxyGlobalArgs()...)
 	restoreArgs = append(restoreArgs,
