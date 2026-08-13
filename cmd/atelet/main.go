@@ -90,6 +90,8 @@ var (
 	ateapiCAFile         = pflag.String("ateapi-ca-file", "/run/servicedns.podcert.ate.dev/trust-bundle.pem", "CA bundle used to verify ateapi.")
 	ateapiServerName     = pflag.String("ateapi-server-name", "api.ate-system.svc", "DNS name expected on the ateapi certificate.")
 
+	pinNullNetNS = pflag.Bool("pin-null-netns", false, "Pin the shared null gofer network namespace under the shared root and exit. Run from a privileged initContainer with Bidirectional mount propagation; requires CAP_SYS_ADMIN.")
+
 	gcpAuthForImagePulls         = pflag.Bool("gcp-auth-for-image-pulls", true, "Use GCP application default credentials mechanism.")
 	localhostRegistryReplacement = pflag.String("localhost-registry-replacement", "", "The replacement registry endpoint for localhost and/or loopback IP addresses, useful for local development. for example kind-registry:5000")
 	imageCacheDir                = pflag.String("image-cache-dir", ateompath.ImageCacheDir, "Directory for the node-local OCI image layer cache. Must be on the volume shared with the ateom pods (the cached layers are their overlay lowerdirs), and on a disk sized for both capacity and IOPS: unpack throughput is gated by the volume's IOPS.")
@@ -111,6 +113,22 @@ func main() {
 	serverboot.InitLogger()
 	if err := serverboot.SetLogLevel(*logLevelFlag); err != nil {
 		serverboot.Fatal(ctx, "Invalid --log-level", err)
+	}
+
+	// One-shot mode for the privileged pin-null-netns initContainer: pin the
+	// node-wide null gofer netns so runsc --shared-root reuses it, then exit.
+	if *pinNullNetNS {
+		if err := ensureSharedNullNetNS(); err != nil {
+			serverboot.Fatal(ctx, "Failed to pin shared null gofer network namespace", err)
+		}
+		return
+	}
+
+	// The unprivileged main container only verifies the initContainer's pin
+	// is in place. Fatal: a deploy without a working pin must fail visibly
+	// rather than silently lose the netns sharing.
+	if err := validateSharedNullNetNS(); err != nil {
+		serverboot.Fatal(ctx, "Shared null gofer network namespace missing or invalid (did the pin-null-netns initContainer run?)", err)
 	}
 
 	// Kept separate from ctx so in-flight work (e.g. a Checkpoint/Restore

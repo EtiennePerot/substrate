@@ -108,6 +108,24 @@ spec:
       - key: ate.dev/sandboxClass
         operator: Exists
         effect: NoSchedule
+      # One-shot pin of the shared null gofer network namespace
+      # (cmd/atelet/null_netns_linux.go) so runsc --shared-root reuses one
+      # netns per node instead of creating one per sandbox. Privileged +
+      # Bidirectional ONLY here: the pin needs CAP_SYS_ADMIN and the bind
+      # mount must propagate to the host so worker pods (HostToContainer)
+      # can see it. Exits in well under a second; the long-running atelet
+      # container below stays unprivileged and merely validates the pin.
+      initContainers:
+      - name: pin-null-netns
+        image: ko://github.com/agent-substrate/substrate/cmd/atelet
+        args:
+        - --pin-null-netns
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: run-ateom
+          mountPath: /var/lib/ateom-gvisor
+          mountPropagation: Bidirectional
       containers:
       - name: atelet
         image: ko://github.com/agent-substrate/substrate/cmd/atelet
