@@ -108,6 +108,17 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 		// "-strace",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
 	}
+	// Node-shared gofer netns: passed as an inherited fd (ExtraFiles[0] =
+	// child fd 3); runsc opens the path in-process (specutils.ApplyNS).
+	// On failure runsc just creates a namespace per sandbox, as before.
+	var goferNS *os.File
+	if f, err := acquireGoferNetNS(); err != nil {
+		slog.WarnContext(ctx, "Could not acquire shared gofer netns; runsc will create one", slog.Any("error", err))
+	} else {
+		goferNS = f
+		defer goferNS.Close()
+		args = append(args, "-gofer-netns", "/proc/self/fd/3")
+	}
 	args = append(args, nvproxyGlobalArgs()...)
 	args = append(args,
 		"create",
@@ -122,6 +133,9 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 		r.path,
 		args...,
 	)
+	if goferNS != nil {
+		cmd.ExtraFiles = []*os.File{goferNS}
+	}
 	cmd.Stdout = out
 	cmd.Stderr = out
 
@@ -254,6 +268,15 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 		// "-strace",
 		"-root", ateompath.RunSCStateDir(r.actorUID),
 	}
+	// Node-shared gofer netns; see cmdCreate. Restore boots gofers too.
+	var goferNS *os.File
+	if f, err := acquireGoferNetNS(); err != nil {
+		slog.WarnContext(ctx, "Could not acquire shared gofer netns; runsc will create one", slog.Any("error", err))
+	} else {
+		goferNS = f
+		defer goferNS.Close()
+		restoreArgs = append(restoreArgs, "-gofer-netns", "/proc/self/fd/3")
+	}
 	restoreArgs = append(restoreArgs, nvproxyGlobalArgs()...)
 	restoreArgs = append(restoreArgs,
 		"restore",
@@ -266,6 +289,9 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 		containerName,
 	)
 	cmd := exec.CommandContext(ctx, r.path, restoreArgs...)
+	if goferNS != nil {
+		cmd.ExtraFiles = []*os.File{goferNS}
+	}
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {

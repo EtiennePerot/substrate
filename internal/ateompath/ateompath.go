@@ -43,6 +43,11 @@ var (
 	// CredentialBrokerSocket is the node-local atelet socket used by atunnel
 	// to request credentials for the worker's current actor assignment.
 	CredentialBrokerSocket = filepath.Join(BasePath, "credential-broker.sock")
+
+	// NullNetNSBrokerSocket is the node-local atelet socket that shares one
+	// empty ("null") gofer network namespace fd per node via SCM_RIGHTS, so
+	// runsc gofers reuse a namespace instead of creating one per sandbox.
+	NullNetNSBrokerSocket = filepath.Join(BasePath, "null-netns-broker.sock")
 )
 
 func RunSCBinaryPath(sha256 string) string {

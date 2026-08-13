@@ -307,6 +307,11 @@ func main() {
 		}
 	}()
 
+	// Node-local broker sharing one empty gofer netns fd across all worker
+	// pods (see null_netns_broker_linux.go). Non-fatal: without it, each
+	// sandbox creates its own namespace as before.
+	startNullNetNSBroker()
+
 	svr := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsCfg)),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
