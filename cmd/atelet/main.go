@@ -999,6 +999,11 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 	// One per leg: a single field written from both goroutines would race.
 	var downloadErr, prepErr error
 	var prepFailedPhase string
+	// The overlap handshake with ateom (see ateompath.RestoreReadyMarker)
+	// must never see a stale marker from a previous restore.
+	if err := os.Remove(ateompath.RestoreReadyMarker(req.GetActorUid())); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, ateerrors.CrashIfReason(ctx, fmt.Errorf("removing stale restore-ready marker: %w", err), ateerrors.ReasonTerminalFileSystemError)
+	}
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() (err error) {
 		t := time.Now()
@@ -1045,6 +1050,12 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 				return err
 			}
 		}
+		// Signal ateom that the checkpoint is fully staged: the
+		// RestoreWorkload RPC issued by the sibling goroutine may already be
+		// running its runsc creates concurrently with this download.
+		if err := os.WriteFile(ateompath.RestoreReadyMarker(req.GetActorUid()), nil, 0o644); err != nil {
+			return ateerrors.CrashIfReason(ctx, fmt.Errorf("writing restore-ready marker: %w", err), ateerrors.ReasonTerminalFileSystemError)
+		}
 		return nil
 	})
 	g.Go(func() (err error) {
@@ -1063,6 +1074,40 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 			prepFailedPhase = ateattr.SnapshotPhaseOCIUnpack
 			return ateerrors.CrashIfReason(ctx, err, ateerrors.ReasonTerminalFileSystemError, ateerrors.ReasonInvalidContainerConfig)
 		}
+		// Call ateom NOW — possibly while the sibling goroutine is still
+		// downloading the checkpoint — so ateom's runsc creates (which only
+		// need the bundles and assets prepared above) overlap with the
+		// download. ateom blocks on the restore-ready marker before its
+		// first runsc restore; a download failure cancels gctx and with it
+		// this RPC, triggering ateom's normal Restore-failure cleanup.
+		client, err := s.dialAteom(gctx, req.GetTargetAteomUid())
+		if err != nil {
+			prepFailedPhase = ateattr.SnapshotPhaseAteomRestore
+			return err
+		}
+		tAteom := time.Now()
+		_, err = client.RestoreWorkload(gctx, &ateompb.RestoreWorkloadRequest{
+			Atespace:               actorRef.Atespace,
+			ActorName:              actorRef.Name,
+			ActorTemplateNamespace: req.GetActorTemplateNamespace(),
+			ActorTemplateName:      req.GetActorTemplateName(),
+			RunscPath:              runscPathFor(assetPaths),
+			RuntimeAssetPaths:      assetPaths,
+			Spec:                   buildAteomWorkloadSpec(req.GetSpec()),
+			Scope:                  toAteomSnapshotScope(req.GetScope()),
+			ActorUid:               req.GetActorUid(),
+			EgressGateway:          toAteomEgressGateway(req.GetEgressGateway()),
+			// Informational: for DATA_ON_GOLDEN the golden snapshot's files are
+			// already staged into the restore dir by the combined download;
+			// ateom restores from the shared dir and never fetches this URI.
+			GoldenSnapshotUri: req.GetGoldenSnapshotUri(),
+		})
+		dAteom = time.Since(tAteom)
+		if err != nil {
+			// TODO: classify the errors returned by Ateom and crash the actor if needed.
+			prepFailedPhase = ateattr.SnapshotPhaseAteomRestore
+			return fmt.Errorf("while calling ateom.RestoreWorkload: %w", err)
+		}
 		return nil
 	})
 	if err := g.Wait(); err != nil {
@@ -1076,36 +1121,8 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 		return nil, err
 	}
 
-	client, err := s.dialAteom(ctx, req.GetTargetAteomUid())
-	if err != nil {
-		return nil, err
-	}
-
-	// Tell ateom to do runsc create + runsc restore for pause container and
-	// all application containers.
-	tAteom := time.Now()
-	_, err = client.RestoreWorkload(ctx, &ateompb.RestoreWorkloadRequest{
-		Atespace:               actorRef.Atespace,
-		ActorName:              actorRef.Name,
-		ActorTemplateNamespace: req.GetActorTemplateNamespace(),
-		ActorTemplateName:      req.GetActorTemplateName(),
-		RunscPath:              runscPathFor(assetPaths),
-		RuntimeAssetPaths:      assetPaths,
-		Spec:                   buildAteomWorkloadSpec(req.GetSpec()),
-		Scope:                  toAteomSnapshotScope(req.GetScope()),
-		ActorUid:               req.GetActorUid(),
-		EgressGateway:          toAteomEgressGateway(req.GetEgressGateway()),
-		// Informational: for DATA_ON_GOLDEN the golden snapshot's files are
-		// already staged into the restore dir by the combined download above;
-		// ateom restores from the shared dir and never fetches this URI.
-		GoldenSnapshotUri: req.GetGoldenSnapshotUri(),
-	})
-	dAteom = time.Since(tAteom)
-	if err != nil {
-		// TODO: classify the errors returned by Ateom and crash the actor if needed.
-		op.failedPhase = ateattr.SnapshotPhaseAteomRestore
-		return nil, fmt.Errorf("while calling ateom.RestoreWorkload: %w", err)
-	}
+	// The ateom.RestoreWorkload call happened inside the prep goroutine
+	// above, overlapped with the checkpoint download.
 
 	// Record the (manifest-pinned) sandbox binaries on-node so a subsequent
 	// Checkpoint of this restored actor can re-pin the same version. For a

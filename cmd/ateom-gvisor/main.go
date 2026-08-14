@@ -820,6 +820,29 @@ func (r *runsc) cleanupContainersAfterCheckpoint(ctx context.Context, containers
 	return nil
 }
 
+// waitForRestoreCheckpoint blocks until atelet's restore-ready marker exists,
+// i.e. the checkpoint under RestoreStateDir is fully staged. atelet issues
+// RestoreWorkload while the download may still be in flight so the runsc
+// creates overlap with it; this is the synchronization point before the
+// first runsc command that reads the checkpoint.
+func waitForRestoreCheckpoint(ctx context.Context, actorUID string) error {
+	marker := ateompath.RestoreReadyMarker(actorUID)
+	start := time.Now()
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			if d := time.Since(start); d > time.Millisecond {
+				slog.InfoContext(ctx, "Waited for restore checkpoint staging", slog.Duration("wait", d))
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for restore checkpoint staging: %w", ctx.Err())
+		case <-time.After(2 * time.Millisecond):
+		}
+	}
+}
+
 func (s *AteomService) RestoreWorkload(ctx context.Context, req *ateompb.RestoreWorkloadRequest) (resp *ateompb.RestoreWorkloadResponse, retErr error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -898,6 +921,11 @@ func (s *AteomService) RestoreWorkload(ctx context.Context, req *ateompb.Restore
 
 	switch req.GetScope() {
 	case ateompb.SnapshotScope_SNAPSHOT_SCOPE_DATA:
+		// The DATA-scope create itself reads the checkpoint
+		// (--fs-restore-image-path), so it cannot overlap with the download.
+		if err := waitForRestoreCheckpoint(ctx, req.GetActorUid()); err != nil {
+			return nil, err
+		}
 		// Create and restore pause container
 		containersToDelete = append(containersToDelete, "pause")
 		if err := rcmd.cmdCreate(ctx, os.Stdout, "pause", []string{"--fs-restore-image-path", checkpointDir}); err != nil {
@@ -907,10 +935,15 @@ func (s *AteomService) RestoreWorkload(ctx context.Context, req *ateompb.Restore
 			return nil, fmt.Errorf("while starting pause container: %w", err)
 		}
 	case ateompb.SnapshotScope_SNAPSHOT_SCOPE_FULL:
-		// Create and restore pause container
+		// Create and restore pause container. The create only needs the OCI
+		// bundle, so it runs while atelet may still be staging the
+		// checkpoint; the restore is what needs the checkpoint on disk.
 		containersToDelete = append(containersToDelete, "pause")
 		if err := rcmd.cmdCreate(ctx, os.Stdout, "pause", nil); err != nil {
 			return nil, fmt.Errorf("while creating pause container: %w", err)
+		}
+		if err := waitForRestoreCheckpoint(ctx, req.GetActorUid()); err != nil {
+			return nil, err
 		}
 		if err := rcmd.cmdRestore(ctx, os.Stdout, "pause", checkpointDir); err != nil {
 			return nil, fmt.Errorf("while starting pause container: %w", err)

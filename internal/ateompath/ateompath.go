@@ -212,6 +212,19 @@ func RestoreStateDir(actorUID string) string {
 	)
 }
 
+// RestoreReadyMarker is the file atelet creates once the restore checkpoint
+// is fully staged under RestoreStateDir. atelet issues RestoreWorkload while
+// the checkpoint download is still in flight so ateom's runsc creates overlap
+// with it; ateom blocks on this marker before the first runsc command that
+// reads the checkpoint. It lives directly under ActorPath (not under a dir
+// wiped mid-flow) and atelet removes any stale copy before each restore.
+func RestoreReadyMarker(actorUID string) string {
+	return filepath.Join(
+		ActorPath(actorUID),
+		"restore-checkpoint-ready",
+	)
+}
+
 func PIDFileDir(actorUID string) string {
 	return filepath.Join(
 		ActorPath(actorUID),
